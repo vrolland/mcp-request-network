@@ -8,12 +8,12 @@ function envTrim(name: string): string | undefined {
   return value?.trim() || undefined;
 }
 
-/** Adresse EVM complète (0x + 40 hex) — rejette les placeholders du type 0x742...HERE. */
+/** Full EVM address (0x + 40 hex) — rejects placeholders like 0x742...HERE. */
 function isLikelyEvmWalletAddress(value: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
-/** Paramètre outil prioritaire seulement s'il ressemble à une vraie adresse ; sinon .env. */
+/** Tool parameter takes precedence only if it looks like a real address; otherwise use .env. */
 function resolveWalletFromToolOrEnv(
   toolValue: string | undefined,
   envName: string,
@@ -29,7 +29,7 @@ function requireClientId(): string {
   const clientId = envTrim("RN_CLIENT_ID");
   if (!clientId) {
     throw new Error(
-      "Variable d'environnement manquante : RN_CLIENT_ID (Client ID du Dashboard Request Network)",
+      "Missing environment variable: RN_CLIENT_ID (Request Network Dashboard Client ID)",
     );
   }
   return clientId;
@@ -210,7 +210,7 @@ function parsePayeeFromDestinationId(destinationId: string): string {
   const at = trimmed.indexOf("@");
   if (at <= 0) {
     throw new Error(
-      `destinationId invalide (attendu wallet@eip155:…#…:…) : ${trimmed}`,
+      `Invalid destinationId (expected wallet@eip155:…#…:…) : ${trimmed}`,
     );
   }
   return trimmed.slice(0, at);
@@ -224,7 +224,7 @@ function parseCurrencyNetwork(paymentCurrency: string): {
   const dash = trimmed.indexOf("-");
   if (dash <= 0 || dash === trimmed.length - 1) {
     throw new Error(
-      `paymentCurrency invalide (attendu TOKEN-network, ex. USDC-base) : ${trimmed}`,
+      `Invalid paymentCurrency (expected TOKEN-network, e.g. USDC-base) : ${trimmed}`,
     );
   }
   return {
@@ -263,15 +263,15 @@ function resolveSecurePayoutLine(
   const paymentCurrency =
     emp.paymentCurrency?.trim() || defaults.paymentCurrency?.trim();
 
-  const who = emp.name?.trim() || `ligne #${index + 1}`;
+  const who = emp.name?.trim() || `line #${index + 1}`;
   if (!recipient) {
     throw new Error(
-      `${who} : payee ou destinationId obligatoire (POST /v2/secure-payments/payouts).`,
+      `${who}: payee or destinationId is required (POST /v2/secure-payments/payouts).`,
     );
   }
   if (!paymentCurrency) {
     throw new Error(
-      `${who} : paymentCurrency obligatoire (champ beneficiaire ou paymentCurrency / RN_DEFAULT_PAYMENT_CURRENCY au niveau batch).`,
+      `${who}: paymentCurrency is required (beneficiary field or batch-level paymentCurrency / RN_DEFAULT_PAYMENT_CURRENCY).`,
     );
   }
 
@@ -300,7 +300,7 @@ function buildSecurePayoutBody(params: {
   const payer = params.creatorWalletAddress.trim();
   if (!payer) {
     throw new Error(
-      "creatorWalletAddress obligatoire — wallet du payeur (paramètre payer ou RN_PAYER).",
+      "creatorWalletAddress is required — payer wallet (payer parameter or RN_PAYER).",
     );
   }
 
@@ -347,12 +347,12 @@ function buildBatchSecurePaymentBody(params: {
 function formatSecurePaymentResult(data: SecurePaymentResponse): string {
   const lines = [JSON.stringify(data, null, 2)];
   if (data.securePaymentUrl) {
-    lines.push("", "Lien à envoyer au payeur (batch) :", data.securePaymentUrl);
+    lines.push("", "Link to send to the payer (batch):", data.securePaymentUrl);
   }
   if (data.requestIds?.length) {
     lines.push(
       "",
-      `${data.requestIds.length} requête(s) créée(s). Vérifiez chaque paiement avec get_payment_status :`,
+      `${data.requestIds.length} request(s) created. Verify each payment with get_payment_status:`,
     );
     for (const id of data.requestIds) {
       lines.push(`  requestId: ${id}`);
@@ -373,8 +373,8 @@ function formatMulticallPayrollResult(
 ): string {
   const lines: string[] = [
     "Secure payouts + multicall — POST /v2/secure-payments/payouts puis /multicall-payouts",
-    `beneficiaires : ${beneficiaries.length}`,
-    "Regrouper les tokens rapidement (~15 min) avec la même auth.",
+    `beneficiaries: ${beneficiaries.length}`,
+    "Bundle tokens quickly (~15 min) using the same auth.",
   ];
 
   const total = beneficiaries.reduce((sum, e) => {
@@ -382,13 +382,13 @@ function formatMulticallPayrollResult(
     return Number.isFinite(n) ? sum + n : sum;
   }, 0);
   if (total > 0) {
-    lines.push(`Total des montants (unités token) : ${total}`);
+    lines.push(`Total amounts (token units): ${total}`);
   }
 
   if (data.securePaymentUrl) {
     lines.push(
       "",
-      `Lien à envoyer au payeur (valide jusqu'à ${data.expiresAt ?? "?"}) :`,
+      `Link to send to the payer (valid until ${data.expiresAt ?? "?"}):`,
       data.securePaymentUrl,
     );
   }
@@ -397,16 +397,16 @@ function formatMulticallPayrollResult(
   if (Array.isArray(items) && items.length) {
     lines.push(
       "",
-      `${items.length} payout(s) dans le batch — requestId par ligne :`,
+      `${items.length} payout(s) in the batch — requestId per line:`,
     );
     for (const item of items) {
       const emp = beneficiaries[(item.position ?? 1) - 1];
-      const label = emp?.name?.trim() || `ligne #${item.position ?? "?"}`;
+      const label = emp?.name?.trim() || `line #${item.position ?? "?"}`;
       lines.push(`  [${item.position ?? "?"}] ${label} — requestId: ${item.requestId ?? "?"}`);
     }
     lines.push(
       "",
-      "Vérifiez chaque paiement avec get_payment_status (requestId).",
+      "Verify each payment with get_payment_status (requestId).",
     );
   }
 
@@ -428,7 +428,7 @@ async function postMulticallPayouts(
   childTokens: string[],
 ): Promise<MulticallPayoutsResponse> {
   if (!childTokens.length) {
-    throw new Error("childTokens[] doit contenir au moins un token.");
+    throw new Error("childTokens[] must contain at least one token.");
   }
   const { data } = await rnApiRequest<MulticallPayoutsResponse>(
     "/v2/secure-payments/multicall-payouts",
@@ -457,20 +457,20 @@ function buildPaymentStatusSummary(
     lines.push(
       "Request Network (requestId):",
       `  hasBeenPaid: ${paid}`,
-      `  paiement effectué: ${paid ? "oui" : "non"}`,
+      `  payment completed: ${paid ? "yes" : "no"}`,
     );
     if (requestStatus.status) {
-      lines.push(`  statut: ${requestStatus.status}`);
+      lines.push(`  status: ${requestStatus.status}`);
     }
     if (requestStatus.txHash) {
       lines.push(`  txHash: ${requestStatus.txHash}`);
     }
     if (requestStatus.reference) {
-      lines.push(`  référence: ${requestStatus.reference}`);
+      lines.push(`  reference: ${requestStatus.reference}`);
     }
-    lines.push("", `Synthèse — paiement reçu: ${paid ? "oui" : "non"}`);
+    lines.push("", `Summary — payment received: ${paid ? "yes" : "no"}`);
   } else {
-    lines.push("Aucune donnée récupérée.");
+    lines.push("No data retrieved.");
   }
 
   return lines.join("\n");
@@ -534,36 +534,36 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_payment_link",
     {
       description:
-        "Crée un Secure Payment link via POST /v2/secure-payments. Paiement simple (amount) ou batch payroll : passer requests[] avec destinationId + amount par bénéficiaire (un seul lien pay.request.network, une signature). RN_CLIENT_ID obligatoire.",
+        "Creates a Secure Payment link via POST /v2/secure-payments. Simple payment (amount) or batch payroll: pass requests[] with destinationId + amount per beneficiary (single pay.request.network link, one signature). RN_CLIENT_ID required.",
       inputSchema: {
         destinationId: z
           .string()
           .optional()
           .describe(
-            "ID composite destination (wallet@chain#...:token). Optionnel si le Client ID a une destination par défaut ; sinon RN_DESTINATION_ID.",
+            "Composite destination ID (wallet@chain#...:token). Optional if the Client ID has a default destination; otherwise RN_DESTINATION_ID.",
           ),
         amount: z
           .string()
           .optional()
           .describe(
-            "Montant en unités du token (défaut : RN_AMOUNT ou \"100\")",
+            "Amount in token units (default: RN_AMOUNT or \"100\")",
           ),
         reference: z
           .string()
           .optional()
-          .describe("Référence optionnelle, ex. ID commande"),
+          .describe("Optional reference, e.g. order ID"),
         payerIdentifier: z
           .string()
           .optional()
-          .describe("Identifiant payeur optionnel, ex. email client"),
+          .describe("Optional payer identifier, e.g. customer email"),
         redirectUrl: z
           .string()
           .optional()
-          .describe("URL http(s) de redirection après paiement"),
+          .describe("http(s) redirect URL after payment"),
         redirectLabel: z
           .string()
           .optional()
-          .describe("Libellé du bouton de retour après paiement"),
+          .describe("Return button label after payment"),
         requests: z
           .array(
             z.object({
@@ -571,20 +571,20 @@ export function createRequestNetworkMcpServer(): McpServer {
                 .string()
                 .optional()
                 .describe(
-                  "destinationId composite (wallet@chain#...:token) du salarié / bénéficiaire",
+                  "Composite destinationId (wallet@chain#...:token) for the employee / beneficiary",
                 ),
               amount: z
                 .string()
-                .describe("Montant en unités du token pour ce bénéficiaire"),
+                .describe("Amount in token units for this beneficiary"),
               reference: z
                 .string()
                 .optional()
-                .describe("Référence optionnelle pour cette ligne"),
+                .describe("Optional reference for this line"),
             }),
           )
           .optional()
           .describe(
-            "Batch payout : chaque entrée doit avoir le destinationId du bénéficiaire (payee). Jusqu'à 200 entrées. Ne pas confondre avec la destination par défaut du Client ID (paiement simple uniquement).",
+            "Batch payout: each entry must have the beneficiary's destinationId (payee). Up to 200 entries. Do not confuse with the Client ID default destination (simple payment only).",
           ),
       },
     },
@@ -632,7 +632,7 @@ export function createRequestNetworkMcpServer(): McpServer {
           );
           if (missingDestination) {
             return toolError(
-              "Chaque entrée du batch doit avoir un destinationId, ou définissez RN_DESTINATION_ID / destinationId par défaut (une seule destination pour toutes les lignes).",
+              "Each batch entry must have a destinationId, or set RN_DESTINATION_ID / a default destinationId (single destination for all lines).",
             );
           }
 
@@ -681,19 +681,19 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_batch_payout_payment_link",
     {
       description:
-        "Créé plusieurs payouts et un lien uniquement de paiement via Secure Payment Page : un POST /v2/secure-payments/payouts par bénéficiaire, puis POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = wallet du payeur (RN_PAYER). paymentCurrency au format TOKEN-network (ex. USDC-base). Chaque bénéficiaire : recipient, payee ou destinationId + amount. RN_CLIENT_ID.",
+        "Creates multiple payouts and a payment-only link via Secure Payment Page: one POST /v2/secure-payments/payouts per beneficiary, then POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = payer wallet (RN_PAYER). paymentCurrency in TOKEN-network format (e.g. USDC-base). Per beneficiary: recipient, payee or destinationId + amount. RN_CLIENT_ID.",
       inputSchema: {
         payer: z
           .string()
           .optional()
           .describe(
-            "Wallet EVM du payeur (creatorWalletAddress). Omettre pour utiliser RN_PAYER — ne pas inventer ni passer de placeholder.",
+            "Payer EVM wallet (creatorWalletAddress). Omit to use RN_PAYER — do not invent or pass a placeholder.",
           ),
         paymentCurrency: z
           .string()
           .optional()
           .describe(
-            'Devise TOKEN-network pour toutes les lignes si omis par salarié, ex. "USDC-base" (défaut : RN_DEFAULT_PAYMENT_CURRENCY)',
+            'TOKEN-network currency for all lines if omitted per employee, e.g. "USDC-base" (default: RN_DEFAULT_PAYMENT_CURRENCY)',
           ),
         beneficiaries: z
           .array(
@@ -701,62 +701,62 @@ export function createRequestNetworkMcpServer(): McpServer {
               name: z
                 .string()
                 .optional()
-                .describe("Nom affiché (récapitulatif uniquement)"),
+                .describe("Display name (summary only)"),
               recipient: z
                 .string()
                 .optional()
-                .describe("Adresse EVM du bénéficiaire — ou payee / destinationId"),
+                .describe("Beneficiary EVM address — or payee / destinationId"),
               payee: z
                 .string()
                 .optional()
-                .describe("Adresse EVM du salarié (0x…) — ou recipient / destinationId"),
+                .describe("Employee EVM address (0x…) — or recipient / destinationId"),
               destinationId: z
                 .string()
                 .optional()
                 .describe(
-                  "Alternative : destinationId composite ; le payee est extrait avant @",
+                  "Alternative: composite destinationId; payee is extracted before @",
                 ),
               paymentCurrency: z
                 .string()
                 .optional()
-                .describe("Devise TOKEN-network pour cette ligne si différente du défaut batch"),
+                .describe("TOKEN-network currency for this line if different from batch default"),
               amount: z
                 .string()
-                .describe("Montant en unités du token pour ce salarié"),
+                .describe("Amount in token units for this employee"),
               reference: z
                 .string()
                 .optional()
-                .describe("Référence optionnelle pour cette ligne"),
+                .describe("Optional reference for this line"),
               recipientIdentifier: z
                 .string()
                 .optional()
-                .describe("Identifiant bénéficiaire optionnel (API secure-payments/payouts)"),
+                .describe("Optional beneficiary identifier (secure-payments/payouts API)"),
             }),
           )
           .min(1)
           .max(200)
-          .describe("Liste des salariés à payer dans le même lien multicall"),
+          .describe("List of employees to pay in the same multicall link"),
         payrollPeriod: z
           .string()
           .optional()
           .describe(
-            'Période de paie pour la référence API, ex. "2026-06" → reference payroll-2026-06 si reference non fournie',
+            'Payroll period for API reference, e.g. "2026-06" → reference payroll-2026-06 if reference not provided',
           ),
         reference: z
           .string()
           .optional()
-          .describe("Référence batch (ex. payroll-2026-06) pour regrouper les webhooks"),
+          .describe("Batch reference (e.g. payroll-2026-06) to group webhooks"),
         redirectUrl: z
           .string()
           .optional()
           .describe(
-            "URL http(s) de redirection après paiement (défaut : RN_REDIRECT_URL), appliquée à chaque payout",
+            "http(s) redirect URL after payment (default: RN_REDIRECT_URL), applied to each payout",
           ),
         redirectLabel: z
           .string()
           .optional()
           .describe(
-            "Libellé du bouton de retour (défaut : RN_REDIRECT_LABEL), appliqué à chaque payout",
+            "Return button label (default: RN_REDIRECT_LABEL), applied to each payout",
           ),
       },
     },
@@ -783,7 +783,7 @@ export function createRequestNetworkMcpServer(): McpServer {
         });
         if (!resolvedPayer) {
           throw new Error(
-            "payer obligatoire — adresse 0x… valide (paramètre outil) ou RN_PAYER dans .env / mcp.json.",
+            "payer is required — valid 0x… address (tool parameter) or RN_PAYER in .env / mcp.json.",
           );
         }
         const defaultPaymentCurrency =
@@ -812,7 +812,7 @@ export function createRequestNetworkMcpServer(): McpServer {
         for (let index = 0; index < beneficiaries.length; index++) {
           const emp = beneficiaries[index];
           const line = resolveSecurePayoutLine(emp, defaults, index);
-          const who = emp.name?.trim() || `ligne #${index + 1}`;
+          const who = emp.name?.trim() || `line #${index + 1}`;
 
           const body = buildSecurePayoutBody({
             creatorWalletAddress: resolvedPayer,
@@ -825,7 +825,7 @@ export function createRequestNetworkMcpServer(): McpServer {
           const token = payoutData.token;
           if (!token) {
             throw new Error(
-              `Réponse payout sans token pour ${who} : ${JSON.stringify(payoutData)}`,
+              `Payout response missing token for ${who}: ${JSON.stringify(payoutData)}`,
             );
           }
           childTokens.push(token);
@@ -858,12 +858,12 @@ export function createRequestNetworkMcpServer(): McpServer {
     "get_payment_status",
     {
       description:
-        "Vérifie si un paiement a été effectué via requestId (GET /v2/request, RN_CLIENT_ID).",
+        "Checks whether a payment was completed via requestId (GET /v2/request, RN_CLIENT_ID).",
       inputSchema: {
         requestId: z
           .string()
           .describe(
-            "ID de requête retourné par create_payment_link ou create_batch_payout_payment_link (champ requestIds)",
+            "Request ID returned by create_payment_link or create_batch_payout_payment_link (requestIds field)",
           ),
       },
     },
@@ -872,7 +872,7 @@ export function createRequestNetworkMcpServer(): McpServer {
 
       if (!resolvedRequestId) {
         return toolError(
-          "Indiquez requestId (élément de requestIds retourné par create_payment_link ou create_batch_payout_payment_link).",
+          "Provide requestId (item from requestIds returned by create_payment_link or create_batch_payout_payment_link).",
         );
       }
 

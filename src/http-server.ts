@@ -37,11 +37,11 @@ app.all("/mcp", async (req: Request, res: Response) => {
       retryInterval: 2000,
       onsessioninitialized: (sessionId) => {
         sessions.set(sessionId, { transport, server });
-        console.error(`[mcp-http] session ${sessionId} prête`);
+        console.error(`[mcp-http] session ${sessionId} ready`);
 
         transport.onclose = () => {
           sessions.delete(sessionId);
-          console.error(`[mcp-http] session ${sessionId} fermée`);
+          console.error(`[mcp-http] session ${sessionId} closed`);
         };
       },
     });
@@ -53,7 +53,7 @@ app.all("/mcp", async (req: Request, res: Response) => {
   try {
     await entry.transport.handleRequest(req, res, req.body);
   } catch (error) {
-    console.error("[mcp-http] erreur requête MCP:", error);
+    console.error("[mcp-http] MCP request error:", error);
     if (!res.headersSent) {
       res.status(500).json({
         jsonrpc: "2.0",
