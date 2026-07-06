@@ -3,6 +3,35 @@ import { z } from "zod";
 
 const RN_API_BASE = "https://api.stage.request.network";
 
+/**
+ * Guidance for LLMs: amounts are always human-readable USD, never on-chain units.
+ * Repeated on each amount field because not every client surfaces server instructions.
+ */
+const AMOUNT_USD_FIELD_DESCRIPTION =
+  'USD amount as a plain decimal string (e.g. "12" for $12, "0.12" for $0.12). ' +
+  "Always the dollar value the user intends, regardless of payment token (USDC, ETH, etc.). " +
+  'Do NOT multiply by on-chain decimals (wrong: $0.12 → "120000"; correct: "0.12"). ' +
+  'Do NOT shift or pad decimals (wrong: $12 → "1200"; correct: "12"). ' +
+  "Request Network converts to token units internally — never do that conversion yourself.";
+
+const MCP_SERVER_INSTRUCTIONS = `# Request Network MCP — amount format (read before payment tools)
+
+All \`amount\` fields are **human-readable USD values** as decimal strings. The payment token (e.g. USDC-base) only selects which asset settles on-chain; it does NOT change how you format the amount.
+
+## Correct examples
+| User intent | Pass |
+|-------------|------|
+| $12 | "12" |
+| $0.12 | "0.12" |
+| $1,500.50 | "1500.50" |
+
+## Common LLM mistakes (never do this)
+- $12 → "1200" (shifted decimal / extra zeros)
+- $0.12 USDC → "120000" (multiplied by 6 on-chain decimals)
+- $100 ETH → wei / smallest-unit conversion
+
+Never convert to smallest on-chain units. Pass the dollar amount exactly as the user means it.`;
+
 function envTrim(name: string): string | undefined {
   const value = process.env[name];
   return value?.trim() || undefined;
@@ -382,7 +411,7 @@ function formatMulticallPayrollResult(
     return Number.isFinite(n) ? sum + n : sum;
   }, 0);
   if (total > 0) {
-    lines.push(`Total amounts (token units): ${total}`);
+    lines.push(`Total amounts (USD): ${total}`);
   }
 
   if (data.securePaymentUrl) {
@@ -527,6 +556,7 @@ export function createRequestNetworkMcpServer(): McpServer {
     },
     {
       capabilities: { logging: {} },
+      instructions: MCP_SERVER_INSTRUCTIONS,
     },
   );
 
@@ -534,7 +564,7 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_payment_link",
     {
       description:
-        "Creates a Secure Payment link via POST /v2/secure-payments. Simple payment (amount) or batch payroll: pass requests[] with destinationId + amount per beneficiary (single pay.request.network link, one signature). RN_CLIENT_ID required.",
+        "Creates a Secure Payment link via POST /v2/secure-payments. Simple payment (amount) or batch payroll: pass requests[] with destinationId + amount per beneficiary (single pay.request.network link, one signature). All amounts are USD decimal strings — never on-chain units (see server instructions). RN_CLIENT_ID required.",
       inputSchema: {
         destinationId: z
           .string()
@@ -546,7 +576,7 @@ export function createRequestNetworkMcpServer(): McpServer {
           .string()
           .optional()
           .describe(
-            "Amount in token units (default: RN_AMOUNT or \"100\")",
+            `${AMOUNT_USD_FIELD_DESCRIPTION} Default: RN_AMOUNT or "100".`,
           ),
         reference: z
           .string()
@@ -575,7 +605,7 @@ export function createRequestNetworkMcpServer(): McpServer {
                 ),
               amount: z
                 .string()
-                .describe("Amount in token units for this beneficiary"),
+                .describe(AMOUNT_USD_FIELD_DESCRIPTION),
               reference: z
                 .string()
                 .optional()
@@ -681,7 +711,7 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_batch_payout_payment_link",
     {
       description:
-        "Creates multiple payouts and a payment-only link via Secure Payment Page: one POST /v2/secure-payments/payouts per beneficiary, then POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = payer wallet (RN_PAYER). paymentCurrency in TOKEN-network format (e.g. USDC-base). Per beneficiary: recipient, payee or destinationId + amount. RN_CLIENT_ID.",
+        "Creates multiple payouts and a payment-only link via Secure Payment Page: one POST /v2/secure-payments/payouts per beneficiary, then POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = payer wallet (RN_PAYER). paymentCurrency in TOKEN-network format (e.g. USDC-base). Per beneficiary: recipient, payee or destinationId + amount (USD decimal string — see server instructions). RN_CLIENT_ID.",
       inputSchema: {
         payer: z
           .string()
@@ -722,7 +752,7 @@ export function createRequestNetworkMcpServer(): McpServer {
                 .describe("TOKEN-network currency for this line if different from batch default"),
               amount: z
                 .string()
-                .describe("Amount in token units for this employee"),
+                .describe(AMOUNT_USD_FIELD_DESCRIPTION),
               reference: z
                 .string()
                 .optional()
