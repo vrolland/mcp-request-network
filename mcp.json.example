@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "request-network-http": {
+      "url": "http://localhost:3100/mcp",
+      "headers": {
+        "x-client-id": "cli_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "x-payer-address": "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      }
+    }
+  }
+}

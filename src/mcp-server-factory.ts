@@ -32,6 +32,17 @@ All \`amount\` fields are **human-readable USD values** as decimal strings. The 
 
 Never convert to smallest on-chain units. Pass the dollar amount exactly as the user means it.`;
 
+/**
+ * Per-client settings from mcp.json (HTTP `headers`, or stdio `env` mapped at startup).
+ * Not loaded from the MCP server's own .env.
+ */
+export type RequestNetworkClientConfig = {
+  /** Request Network Dashboard Client ID → API header x-client-id */
+  clientId?: string;
+  /** Payer EVM wallet (creatorWalletAddress) for batch payouts */
+  payer?: string;
+};
+
 function envTrim(name: string): string | undefined {
   const value = process.env[name];
   return value?.trim() || undefined;
@@ -42,39 +53,45 @@ function isLikelyEvmWalletAddress(value: string): boolean {
   return /^0x[a-fA-F0-9]{40}$/.test(value.trim());
 }
 
-/** Tool parameter takes precedence only if it looks like a real address; otherwise use .env. */
-function resolveWalletFromToolOrEnv(
+/** Tool parameter takes precedence only if it looks like a real address; otherwise mcp.json payer. */
+function resolvePayerWallet(
   toolValue: string | undefined,
-  envName: string,
+  clientConfig: RequestNetworkClientConfig,
 ): string | undefined {
   const fromTool = toolValue?.trim();
   if (fromTool && isLikelyEvmWalletAddress(fromTool)) {
     return fromTool;
   }
-  return envTrim(envName);
+  const fromClient = clientConfig.payer?.trim();
+  if (fromClient && isLikelyEvmWalletAddress(fromClient)) {
+    return fromClient;
+  }
+  return undefined;
 }
 
-function requireClientId(): string {
-  const clientId = envTrim("RN_CLIENT_ID");
+function requireClientId(clientConfig: RequestNetworkClientConfig): string {
+  const clientId = clientConfig.clientId?.trim();
   if (!clientId) {
     throw new Error(
-      "Missing environment variable: RN_CLIENT_ID (Request Network Dashboard Client ID)",
+      'Missing client ID — set headers["x-client-id"] in mcp.json (HTTP) or RN_CLIENT_ID in the client mcp.json env (stdio).',
     );
   }
   return clientId;
 }
 
-function requireAuth(): void {
+function requireAuth(clientConfig: RequestNetworkClientConfig): void {
   if (envTrim("RN_API_KEY")) return;
   if (envTrim("RN_ORCHESTRATOR_KEY")) {
-    requireClientId();
+    requireClientId(clientConfig);
     return;
   }
-  requireClientId();
+  requireClientId(clientConfig);
 }
 
 /** @see https://api.request.network/open-api/#tag/v2secure-payment/POST/v2/secure-payments */
-function buildAuthHeaders(): Record<string, string> {
+function buildAuthHeaders(
+  clientConfig: RequestNetworkClientConfig,
+): Record<string, string> {
   const apiKey = envTrim("RN_API_KEY");
   if (apiKey) {
     return { "x-api-key": apiKey };
@@ -82,7 +99,7 @@ function buildAuthHeaders(): Record<string, string> {
 
   const orchestratorKey = envTrim("RN_ORCHESTRATOR_KEY");
   const origin = envTrim("RN_ORIGIN");
-  const clientId = requireClientId();
+  const clientId = requireClientId(clientConfig);
 
   if (orchestratorKey) {
     const headers: Record<string, string> = {
@@ -103,13 +120,14 @@ async function rnApiRequest<T>(
   options: {
     method?: string;
     body?: unknown;
-  } = {},
+    clientConfig: RequestNetworkClientConfig;
+  },
 ): Promise<{ status: number; data: T }> {
   const response = await fetch(`${RN_API_BASE}${path}`, {
     method: options.method ?? "GET",
     headers: {
       "Content-Type": "application/json",
-      ...buildAuthHeaders(),
+      ...buildAuthHeaders(options.clientConfig),
     },
     body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
   });
@@ -329,7 +347,7 @@ function buildSecurePayoutBody(params: {
   const payer = params.creatorWalletAddress.trim();
   if (!payer) {
     throw new Error(
-      "creatorWalletAddress is required — payer wallet (payer parameter or RN_PAYER).",
+      "creatorWalletAddress is required — payer wallet (payer parameter or mcp.json x-payer-address).",
     );
   }
 
@@ -445,33 +463,36 @@ function formatMulticallPayrollResult(
 
 async function postSecurePaymentPayout(
   body: SecurePayoutSingleBody,
+  clientConfig: RequestNetworkClientConfig,
 ): Promise<SecurePayoutResponse> {
   const { data } = await rnApiRequest<SecurePayoutResponse>(
     "/v2/secure-payments/payouts",
-    { method: "POST", body },
+    { method: "POST", body, clientConfig },
   );
   return data;
 }
 
 async function postMulticallPayouts(
   childTokens: string[],
+  clientConfig: RequestNetworkClientConfig,
 ): Promise<MulticallPayoutsResponse> {
   if (!childTokens.length) {
     throw new Error("childTokens[] must contain at least one token.");
   }
   const { data } = await rnApiRequest<MulticallPayoutsResponse>(
     "/v2/secure-payments/multicall-payouts",
-    { method: "POST", body: { childTokens } },
+    { method: "POST", body: { childTokens }, clientConfig },
   );
   return data;
 }
 
 async function postSecurePayment(
   body: SecurePaymentBody,
+  clientConfig: RequestNetworkClientConfig,
 ): Promise<SecurePaymentResponse> {
   const { data } = await rnApiRequest<SecurePaymentResponse>(
     "/v2/secure-payments",
-    { method: "POST", body },
+    { method: "POST", body, clientConfig },
   );
   return data;
 }
@@ -546,8 +567,10 @@ function toolError(message: string) {
   };
 }
 
-export function createRequestNetworkMcpServer(): McpServer {
-  requireAuth();
+export function createRequestNetworkMcpServer(
+  clientConfig: RequestNetworkClientConfig = {},
+): McpServer {
+  requireAuth(clientConfig);
 
   const server = new McpServer(
     {
@@ -564,7 +587,7 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_payment_link",
     {
       description:
-        "Creates a Secure Payment link via POST /v2/secure-payments. Simple payment (amount) or batch payroll: pass requests[] with destinationId + amount per beneficiary (single pay.request.network link, one signature). All amounts are USD decimal strings — never on-chain units (see server instructions). RN_CLIENT_ID required.",
+        "Creates a Secure Payment link via POST /v2/secure-payments. Simple payment (amount) or batch payroll: pass requests[] with destinationId + amount per beneficiary (single pay.request.network link, one signature). All amounts are USD decimal strings — never on-chain units (see server instructions). Client ID required via mcp.json (x-client-id).",
       inputSchema: {
         destinationId: z
           .string()
@@ -689,7 +712,7 @@ export function createRequestNetworkMcpServer(): McpServer {
           });
         }
 
-        const data = await postSecurePayment(body);
+        const data = await postSecurePayment(body, clientConfig);
 
         return {
           content: [
@@ -711,13 +734,13 @@ export function createRequestNetworkMcpServer(): McpServer {
     "create_batch_payout_payment_link",
     {
       description:
-        "Creates multiple payouts and a payment-only link via Secure Payment Page: one POST /v2/secure-payments/payouts per beneficiary, then POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = payer wallet (RN_PAYER). paymentCurrency in TOKEN-network format (e.g. USDC-base). Per beneficiary: recipient, payee or destinationId + amount (USD decimal string — see server instructions). RN_CLIENT_ID.",
+        "Creates multiple payouts and a payment-only link via Secure Payment Page: one POST /v2/secure-payments/payouts per beneficiary, then POST /v2/secure-payments/multicall-payouts → securePaymentUrl. payer = payer wallet (mcp.json x-payer-address). paymentCurrency in TOKEN-network format (e.g. USDC-base). Per beneficiary: recipient, payee or destinationId + amount (USD decimal string — see server instructions). Client ID via mcp.json x-client-id.",
       inputSchema: {
         payer: z
           .string()
           .optional()
           .describe(
-            "Payer EVM wallet (creatorWalletAddress). Omit to use RN_PAYER — do not invent or pass a placeholder.",
+            "Payer EVM wallet (creatorWalletAddress). Omit to use mcp.json x-payer-address — do not invent or pass a placeholder.",
           ),
         paymentCurrency: z
           .string()
@@ -800,7 +823,7 @@ export function createRequestNetworkMcpServer(): McpServer {
       redirectLabel,
     }) => {
       try {
-        const resolvedPayer = resolveWalletFromToolOrEnv(payer, "RN_PAYER");
+        const resolvedPayer = resolvePayerWallet(payer, clientConfig);
         console.log("create_batch_payout_payment_link", {
           payerArg: payer,
           resolvedPayer,
@@ -813,7 +836,7 @@ export function createRequestNetworkMcpServer(): McpServer {
         });
         if (!resolvedPayer) {
           throw new Error(
-            "payer is required — valid 0x… address (tool parameter) or RN_PAYER in .env / mcp.json.",
+            'payer is required — valid 0x… address (tool parameter) or headers["x-payer-address"] in mcp.json.',
           );
         }
         const defaultPaymentCurrency =
@@ -851,7 +874,7 @@ export function createRequestNetworkMcpServer(): McpServer {
             redirectLabel: resolvedRedirectLabel,
           });
 
-          const payoutData = await postSecurePaymentPayout(body);
+          const payoutData = await postSecurePaymentPayout(body, clientConfig);
           const token = payoutData.token;
           if (!token) {
             throw new Error(
@@ -866,7 +889,7 @@ export function createRequestNetworkMcpServer(): McpServer {
           });
         }
 
-        const batchData = await postMulticallPayouts(childTokens);
+        const batchData = await postMulticallPayouts(childTokens, clientConfig);
 
         return {
           content: [
@@ -888,7 +911,7 @@ export function createRequestNetworkMcpServer(): McpServer {
     "get_payment_status",
     {
       description:
-        "Checks whether a payment was completed via requestId (GET /v2/request, RN_CLIENT_ID).",
+        "Checks whether a payment was completed via requestId (GET /v2/request; client ID from mcp.json x-client-id).",
       inputSchema: {
         requestId: z
           .string()
@@ -910,6 +933,7 @@ export function createRequestNetworkMcpServer(): McpServer {
         const { data: requestStatus } =
           await rnApiRequest<RequestStatusResponse>(
             `/v2/request/${encodeURIComponent(resolvedRequestId)}`,
+            { clientConfig },
           );
 
         const summary = buildPaymentStatusSummary(requestStatus);
