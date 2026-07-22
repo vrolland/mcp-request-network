@@ -80,11 +80,6 @@ function requireClientId(clientConfig: RequestNetworkClientConfig): string {
 }
 
 function requireAuth(clientConfig: RequestNetworkClientConfig): void {
-  if (envTrim("RN_API_KEY")) return;
-  if (envTrim("RN_ORCHESTRATOR_KEY")) {
-    requireClientId(clientConfig);
-    return;
-  }
   requireClientId(clientConfig);
 }
 
@@ -92,26 +87,8 @@ function requireAuth(clientConfig: RequestNetworkClientConfig): void {
 function buildAuthHeaders(
   clientConfig: RequestNetworkClientConfig,
 ): Record<string, string> {
-  const apiKey = envTrim("RN_API_KEY");
-  if (apiKey) {
-    return { "x-api-key": apiKey };
-  }
-
-  const orchestratorKey = envTrim("RN_ORCHESTRATOR_KEY");
-  const origin = envTrim("RN_ORIGIN");
   const clientId = requireClientId(clientConfig);
-
-  if (orchestratorKey) {
-    const headers: Record<string, string> = {
-      "x-client-id": clientId,
-      "x-orchestrator-key": orchestratorKey,
-    };
-    if (origin) headers.Origin = origin;
-    return headers;
-  }
-
   const headers: Record<string, string> = { "x-client-id": clientId };
-  if (origin) headers.Origin = origin;
   return headers;
 }
 
@@ -318,7 +295,7 @@ function resolveSecurePayoutLine(
   }
   if (!paymentCurrency) {
     throw new Error(
-      `${who}: paymentCurrency is required (beneficiary field or batch-level paymentCurrency / RN_DEFAULT_PAYMENT_CURRENCY).`,
+      `${who}: paymentCurrency is required (beneficiary field or batch-level paymentCurrency).`,
     );
   }
 
@@ -593,13 +570,7 @@ export function createRequestNetworkMcpServer(
           .string()
           .optional()
           .describe(
-            "Composite destination ID (wallet@chain#...:token). Optional if the Client ID has a default destination; otherwise RN_DESTINATION_ID.",
-          ),
-        amount: z
-          .string()
-          .optional()
-          .describe(
-            `${AMOUNT_USD_FIELD_DESCRIPTION} Default: RN_AMOUNT or "100".`,
+            "Composite destination ID (wallet@chain#...:token). Optional if the Client ID has a default destination.",
           ),
         reference: z
           .string()
@@ -622,7 +593,6 @@ export function createRequestNetworkMcpServer(
             z.object({
               destinationId: z
                 .string()
-                .optional()
                 .describe(
                   "Composite destinationId (wallet@chain#...:token) for the employee / beneficiary",
                 ),
@@ -635,7 +605,6 @@ export function createRequestNetworkMcpServer(
                 .describe("Optional reference for this line"),
             }),
           )
-          .optional()
           .describe(
             "Batch payout: each entry must have the beneficiary's destinationId (payee). Up to 200 entries. Do not confuse with the Client ID default destination (simple payment only).",
           ),
@@ -643,7 +612,6 @@ export function createRequestNetworkMcpServer(
     },
     async ({
       destinationId,
-      amount,
       reference,
       payerIdentifier,
       redirectUrl,
@@ -651,17 +619,13 @@ export function createRequestNetworkMcpServer(
       requests,
     }) => {
       try {
-        const defaultDestinationId =
-          destinationId?.trim() || envTrim("RN_DESTINATION_ID");
-
-        const resolvedReference =
-          reference?.trim() || envTrim("RN_REFERENCE");
-        const resolvedPayerIdentifier =
-          payerIdentifier?.trim() || envTrim("RN_PAYER_IDENTIFIER");
+        const defaultDestinationId = destinationId?.trim();
+        const resolvedReference = reference?.trim();
+        const resolvedPayerIdentifier = payerIdentifier?.trim();
         const resolvedRedirectUrl =
-          redirectUrl?.trim() || envTrim("RN_REDIRECT_URL");
+          redirectUrl?.trim();
         const resolvedRedirectLabel =
-          redirectLabel?.trim() || envTrim("RN_REDIRECT_LABEL");
+          redirectLabel?.trim();
 
         let body: SecurePaymentBody;
 
@@ -685,7 +649,7 @@ export function createRequestNetworkMcpServer(
           );
           if (missingDestination) {
             return toolError(
-              "Each batch entry must have a destinationId, or set RN_DESTINATION_ID / a default destinationId (single destination for all lines).",
+              "Each batch entry must have a destinationId, or set a default destinationId (single destination for all lines).",
             );
           }
 
@@ -697,19 +661,7 @@ export function createRequestNetworkMcpServer(
             redirectLabel: resolvedRedirectLabel,
           });
         } else {
-          const resolvedAmount =
-            amount?.trim() || envTrim("RN_AMOUNT") || "100";
-
-          body = buildSecurePaymentBody({
-            ...(defaultDestinationId
-              ? { destinationId: defaultDestinationId }
-              : {}),
-            amount: resolvedAmount,
-            reference: resolvedReference,
-            payerIdentifier: resolvedPayerIdentifier,
-            redirectUrl: resolvedRedirectUrl,
-            redirectLabel: resolvedRedirectLabel,
-          });
+          return toolError(`Requests array is required.`);
         }
 
         const data = await postSecurePayment(body, clientConfig);
@@ -746,7 +698,7 @@ export function createRequestNetworkMcpServer(
           .string()
           .optional()
           .describe(
-            'TOKEN-network currency for all lines if omitted per employee, e.g. "USDC-base" (default: RN_DEFAULT_PAYMENT_CURRENCY)',
+            'TOKEN-network currency for all lines if omitted per employee, e.g. "USDC-base"',
           ),
         beneficiaries: z
           .array(
@@ -840,19 +792,18 @@ export function createRequestNetworkMcpServer(
           );
         }
         const defaultPaymentCurrency =
-          paymentCurrency?.trim() || envTrim("RN_DEFAULT_PAYMENT_CURRENCY");
+          paymentCurrency?.trim();
 
         const resolvedReference =
           reference?.trim() ||
-          envTrim("RN_REFERENCE") ||
           (payrollPeriod?.trim()
             ? `payroll-${payrollPeriod.trim()}`
             : undefined);
 
         const resolvedRedirectUrl =
-          redirectUrl?.trim() || envTrim("RN_REDIRECT_URL");
+          redirectUrl?.trim();
         const resolvedRedirectLabel =
-          redirectLabel?.trim() || envTrim("RN_REDIRECT_LABEL");
+          redirectLabel?.trim();
 
         const defaults = {
           paymentCurrency: defaultPaymentCurrency,
